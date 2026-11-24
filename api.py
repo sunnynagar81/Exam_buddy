@@ -31,6 +31,7 @@ app.add_middleware(
         "http://localhost:5173",
         "https://exambuddy-site.vercel.app",
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -109,47 +110,31 @@ def root():
     return {"status": "Exam Buddy API is running"}
 
 
-@app.post("/api/signup")
-def signup(body: AuthIn):
-    ok, message = create_user(body.username, body.password)
-    if not ok:
-        raise HTTPException(status_code=400, detail=message)
-    return {"message": message}
-
-
-@app.post("/api/login")
-def login(body: AuthIn):
-    if not verify_user(body.username, body.password):
-        raise HTTPException(status_code=401, detail="Username ya password galat hai.")
-    username = body.username.strip().lower()
-    return {"token": make_token(username), "username": username}
-
-
-@app.get("/api/me")
-def me(user: str = Depends(get_current_user)):
-    return {"username": user}
-
-
-# ---------- Notes ----------
 @app.post("/api/upload")
 def upload(file: UploadFile = File(...), user: str = Depends(get_current_user)):
     name = Path(file.filename or "").name
     if not name.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are allowed.")
 
-    key = user_key(user)
-    folder = DATA_DIR / key
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / name
-    path.write_bytes(file.file.read())
+    try:
+        key = user_key(user)
+        folder = DATA_DIR / key
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / name
+        path.write_bytes(file.file.read())
 
-    pages = load_pdf(path)
-    if not pages:
-        raise HTTPException(
-            status_code=400,
-            detail="No readable text found. Please upload a text-based PDF, not a scanned one.",
-        )
-    count = add_chunks(chunk_pages(pages, name, key))
+        pages = load_pdf(path)
+        if not pages:
+            raise HTTPException(
+                status_code=400,
+                detail="No readable text found. Please upload a text-based PDF, not a scanned one.",
+            )
+        count = add_chunks(chunk_pages(pages, name, key))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Upload failed: {type(e).__name__}: {e}")
+
     return {"file": name, "pages": len(pages), "chunks": count}
 
 
