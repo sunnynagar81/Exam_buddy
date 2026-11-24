@@ -4,8 +4,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from auth import create_user, verify_user
@@ -35,6 +36,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+bearer_scheme = HTTPBearer()
+
 
 # ---------- Models ----------
 class AuthIn(BaseModel):
@@ -58,6 +61,13 @@ class QuizIn(BaseModel):
     difficulty: str = "medium"
 
 
+class StudyPlanIn(BaseModel):
+    exam: str
+    exam_date: str
+    hours: int = 2
+    request: str = ""
+
+
 # ---------- Helpers ----------
 def make_token(username: str) -> str:
     payload = {
@@ -67,17 +77,16 @@ def make_token(username: str) -> str:
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def get_current_user(authorization: str = Header(default="")) -> str:
-    token = authorization.removeprefix("Bearer ").strip()
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> str:
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Please login first.")
     return payload["sub"]
 
 
 def user_key(user: str) -> str:
-    """Har user ka ek alag notes store hota hai. Username letters/numbers hi hote hain."""
+    """Har user ka ek alag notes store hota hai."""
     return re.sub(r"[^a-z0-9]+", "_", f"user_{user}".lower()).strip("_")
 
 
@@ -171,13 +180,8 @@ def quiz(body: QuizIn, user: str = Depends(get_current_user)):
     questions = run_ai(generate_quiz, user_key(user), n=n, difficulty=difficulty, source=body.source)
     return {"questions": questions}
 
-class StudyPlanIn(BaseModel):
-    exam: str
-    exam_date: str
-    hours: int = 2
-    request: str = ""
 
-
+# ---------- Study plan ----------
 @app.post("/api/study-plan")
 def study_plan(body: StudyPlanIn, user: str = Depends(get_current_user)):
     try:
