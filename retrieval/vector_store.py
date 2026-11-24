@@ -1,25 +1,41 @@
+import time
+
 import chromadb
 from chromadb import Documents, EmbeddingFunction, Embeddings
 from google import genai
+from google.genai import errors as genai_errors
 from config import CHROMA_DIR, GOOGLE_API_KEY, TOP_K
 
 EMBED_MODEL = "gemini-embedding-001"
+BATCH_SIZE = 20
+MAX_RETRIES = 6
 
 client = chromadb.PersistentClient(path=str(CHROMA_DIR))
 _gemini = genai.Client(api_key=GOOGLE_API_KEY)
 
 
 class GeminiEmbedder(EmbeddingFunction):
-    """Gemini API se embeddings banata hai, taaki server par local model load na ho."""
+    """Gemini API se embeddings banata hai. Quota (429) aane par wait karke dobara try karta hai."""
 
     def __call__(self, input: Documents) -> Embeddings:
         texts = list(input)
         vectors = []
-        for i in range(0, len(texts), 50):
-            batch = texts[i:i + 50]
-            res = _gemini.models.embed_content(model=EMBED_MODEL, contents=batch)
-            vectors.extend(e.values for e in res.embeddings)
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i:i + BATCH_SIZE]
+            vectors.extend(self._embed_with_retry(batch))
+            time.sleep(1)  # batches ke beech thoda gap, quota bachane ke liye
         return vectors
+
+    def _embed_with_retry(self, batch):
+        for attempt in range(MAX_RETRIES):
+            try:
+                res = _gemini.models.embed_content(model=EMBED_MODEL, contents=batch)
+                return [e.values for e in res.embeddings]
+            except genai_errors.ClientError as e:
+                if "429" in str(e) and attempt < MAX_RETRIES - 1:
+                    time.sleep(20 * (attempt + 1))  # 20s, 40s, 60s... wait karega
+                    continue
+                raise
 
     @staticmethod
     def name() -> str:
