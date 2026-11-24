@@ -23,16 +23,16 @@ def _hash(password: str, salt: bytes) -> bytes:
 def create_user(username: str, password: str) -> tuple[bool, str]:
     username = username.strip().lower()
     if not username.isalnum() or not (3 <= len(username) <= 20):
-        return False, "Username 3 se 20 letters/numbers ka hona chahiye (space ya symbol nahi)."
+        return False, "Username should be 3-20 characters long and contain only letters and numbers."
     if len(password) < 6:
-        return False, "Password kam se kam 6 characters ka hona chahiye."
+        return False, "Password should be at least 6 characters long."
 
     salt = os.urandom(16)
     conn = _connect()
     try:
         exists = conn.execute("SELECT 1 FROM users WHERE username = ?", (username,)).fetchone()
         if exists:
-            return False, "Ye username pehle se hai. Dusra username chuno."
+            return False, ".Username already taken. Please choose a different one."
         conn.execute(
             "INSERT INTO users (username, salt, pw_hash) VALUES (?, ?, ?)",
             (username, salt, _hash(password, salt)),
@@ -40,7 +40,7 @@ def create_user(username: str, password: str) -> tuple[bool, str]:
         conn.commit()
     finally:
         conn.close()
-    return True, "Account ban gaya! Ab Login tab me jaakar login karo."
+    return True, "Account successfully created."
 
 
 def verify_user(username: str, password: str) -> bool:

@@ -1,4 +1,7 @@
-streamlit
+fastapi
+uvicorn
+pyjwt
+python-multipart
 chromadb
 pypdf
 python-dotenv
