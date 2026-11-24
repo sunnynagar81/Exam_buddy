@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
@@ -16,6 +16,7 @@ from retrieval.vector_store import add_chunks, list_sources
 from features.qa import answer_question
 from features.summarizer import summarize_subject
 from features.quiz import generate_quiz
+from features.study_plan import make_plan
 
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-change-me")
 ALGORITHM = "HS256"
@@ -169,3 +170,28 @@ def quiz(body: QuizIn, user: str = Depends(get_current_user)):
     difficulty = body.difficulty if body.difficulty in ("easy", "medium", "hard") else "medium"
     questions = run_ai(generate_quiz, user_key(user), n=n, difficulty=difficulty, source=body.source)
     return {"questions": questions}
+
+class StudyPlanIn(BaseModel):
+    exam: str
+    exam_date: str
+    hours: int = 2
+    request: str = ""
+
+
+@app.post("/api/study-plan")
+def study_plan(body: StudyPlanIn, user: str = Depends(get_current_user)):
+    try:
+        exam_day = date.fromisoformat(body.exam_date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Exam date YYYY-MM-DD format me honi chahiye.")
+
+    days_left = (exam_day - date.today()).days
+    if days_left < 1:
+        raise HTTPException(status_code=400, detail="Exam date aaj ke baad ki honi chahiye.")
+
+    if not list_sources(user_key(user)):
+        raise HTTPException(status_code=400, detail="Pehle notes upload karo, phir study plan banega.")
+
+    hours = min(max(body.hours, 1), 12)
+    plan = run_ai(make_plan, user_key(user), body.exam, body.exam_date, days_left, hours, body.request)
+    return {"plan": plan, "days_left": days_left}
